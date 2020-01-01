@@ -1,3 +1,6 @@
 vendor
 nbproject/private/private.xml
 /files/
+/.idea/
+/jobe.iml
+/runguard/runguard
