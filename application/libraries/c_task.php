@@ -18,9 +18,9 @@ class C_Task extends Task {
         parent::__construct($filename, $input, $params);
         $this->default_params['compileargs'] = array(
             '-Wall',
-            '-Werror',
             '-std=c99',
-            '-x c');
+            '-x c'
+        );
     }
 
     public static function getVersionCommand() {
@@ -28,12 +28,21 @@ class C_Task extends Task {
     }
 
     public function compile() {
-        $src = basename($this->sourceFileName);
-        $this->executableFileName = $execFileName = "$src.exe";
+        $this->executableFileName = $execFileName = "jobeExecutableBinary";
         $compileargs = $this->getParam('compileargs');
         $linkargs = $this->getParam('linkargs');
-        $cmd = "gcc " . implode(' ', $compileargs) . " -o $execFileName $src " . implode(' ', $linkargs);
-        list($output, $this->cmpinfo) = $this->run_in_sandbox($cmd);
+
+        $cmd = "gcc " .
+            implode(' ', $compileargs) .
+            " `find . -name '*.c'` " .
+            " -I./ " .
+            " -o $execFileName " . 
+            implode(' ', $linkargs);
+
+        list($retval, $output, $stderr) = $this->run_in_sandbox($cmd);
+        if ($retval) {
+            $this->cmpinfo = $stderr;
+        }
     }
 
     // A default name for C programs

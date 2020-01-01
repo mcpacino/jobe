@@ -44,10 +44,13 @@ class Java_Task extends Task {
     }
 
     public function compile() {
-        $prog = file_get_contents($this->sourceFileName);
         $compileArgs = $this->getParam('compileargs');
-        $cmd = '/usr/bin/javac ' . implode(' ', $compileArgs) . " {$this->sourceFileName}";
-        list($output, $this->cmpinfo) = $this->run_in_sandbox($cmd);
+
+        $cmd = '/usr/bin/javac ' .
+            implode(' ', $compileArgs) .
+            " `find . -name '*.java'` ";
+
+        list($retval, $output, $this->cmpinfo) = $this->run_in_sandbox($cmd);
         if (empty($this->cmpinfo)) {
             $this->executableFileName = $this->sourceFileName;
         }
@@ -70,25 +73,133 @@ class Java_Task extends Task {
     }
 
 
-
-    public function getTargetFile() {
-        return $this->mainClassName;
+    private function getClassFileList() {
+        exec('find ./ -name "*.class"', $output);
+        return $output;
     }
 
+    /*
+     * Check $classFile containing main method or not.
+     * If no, return NULL.
+     * If yes, return full path of it's source file and class name
+     *
+     * Example:
+     *      $classFile = './src/se751/FibonacciTask.class'
+     *      return [
+     *          'compiledfrom'  => './src/se751/FactorialTask.java',
+     *          'classname'     => 'se751.FibonacciTask'
+     *      ]
+     */
+    private function getMainClass($classFile) {
+        // Example value of $classFile: './src/se751/FibonacciTask.class'
 
-    // Return the name of the main class in the given prog, or FALSE if no
-    // such class found. Uses a regular expression to find a public class with
-    // a public static void main method.
-    // Not totally safe as it doesn't parse the file, e.g. would be fooled
-    // by a commented-out main class with a different name.
-    private function getMainClass($prog) {
-        $pattern = '/(^|\W)public\s+class\s+(\w+)[^{]*\{.*?public\s+static\s+void\s+main\s*\(\s*String/ms';
-        if (preg_match_all($pattern, $prog, $matches) !== 1) {
-            return FALSE;
+        exec("javap -public $classFile", $javap, $retval);
+        $javap = implode("\n", $javap);
+
+        /*
+         * Example value of $javap:
+         *
+         * Compiled from "FactorialTask.java"
+         * class se751.FibonacciTask extends java.util.concurrent.RecursiveTask<java.lang.Integer> {
+         *    public java.lang.Integer compute();
+         *    public static void main(java.lang.String[]);
+         *    public java.lang.Object compute();
+         * }
+         */
+
+        if (strstr($javap, 'public static void main(java.lang.String[])') == FALSE) {
+            return NULL;
         }
-        else {
-            return $matches[2][0];
+
+        // Example value of $compiledfrom: 'FactorialTask.java'
+        preg_match('/Compiled from "(?<compiledfrom>.*)"/', $javap, $matches);
+        $compiledfrom=$matches['compiledfrom'];
+
+        // Example value of $fullcompiledfrom: './src/se751/FactorialTask.java'
+        $fullcompiledfrom = dirname($classFile) . DIRECTORY_SEPARATOR . $compiledfrom;
+
+        // Example value of $class: 'se751.FibonacciTask'
+        preg_match('/class (?<classname>[^ ]+) /', $javap, $matches);
+        $classname=$matches['classname'];
+
+        return array('compiledfrom'=>$fullcompiledfrom, 'classname'=>$classname);
+    }
+
+    /*
+     * Find out all .class files that contains main method.
+     */
+    private function getMainClassList() {
+        $classFileList = $this->getClassFileList();
+
+        $mainClassList = array();
+        foreach ($classFileList as $classFile) {
+            // check $classFile contain main method and get info of it.
+            $mainClass = $this->getMainClass($classFile);
+            if ($mainClass) {
+                array_push($mainClassList, $mainClass);
+            }
         }
+
+        return $mainClassList;
+    }
+
+    private function getSelectedClasw($mainClassList) {
+        // selectedfile is from webIDE client
+        $selectedfile = $this->selectedfile;
+
+        $msg = "Found multiple main methods in:\n";
+
+        foreach ($mainClassList as $mainClass) {
+            if (strcmp($mainClass['compiledfrom'], $selectedfile) == 0) {
+                return $mainClass;
+            }
+            $msg = $msg . '  ' . $mainClass['compiledfrom'] . "\n";
+        }
+
+        $msg = $msg . 'Please select one to run.';
+        throw new Exception($msg);
+    }
+
+    /*
+     * Pick up the right class for running.
+     */
+    private function pickMainClass($mainClassList) {
+        $count = count($mainClassList);
+
+        if ($count == 0) {
+            throw new Exception("Main method not found, please define the main method as:\n  public static void main(String[] args)");
+        } elseif ($count == 1) {
+            $mainClass = $mainClassList[0];
+        } else {
+            $mainClass = $this->getSelectedClasw($mainClassList);
+        }
+
+        return $mainClass;
+    }
+
+    private function getClassPath($mainClass) {
+        /*
+         * Example of $mainClass:
+         *      [
+         *          'compiledfrom'  => './src/se751/FactorialTask.java',
+         *          'classname'     => 'se751.FibonacciTask'
+         *      ]
+         *
+         * Return './src'
+         */
+
+        $levels = count(explode('.', $mainClass['classname']));
+        return dirname($mainClass['compiledfrom'], $levels);
+    }
+
+    public function getTargetFile() {
+        $mainClassList = $this->getMainClassList();
+        $mainClass = $this->pickMainClass($mainClassList);
+
+        $classpath = $this->getClassPath($mainClass);
+        $classname = $mainClass['classname'];
+
+        return "--class-path $classpath $classname";
     }
 
     // Get rid of the tab characters at the start of indented lines in

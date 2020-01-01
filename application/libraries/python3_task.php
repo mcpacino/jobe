@@ -26,7 +26,7 @@ class Python3_Task extends Task {
     public function compile() {
         $cmd = "python3 -m py_compile {$this->sourceFileName}";
         $this->executableFileName = $this->sourceFileName;
-        list($output, $this->cmpinfo) = $this->run_in_sandbox($cmd);
+        list($retval, $output, $this->cmpinfo) = $this->run_in_sandbox($cmd);
         if (!empty($this->cmpinfo) && !empty($output)) {
             $this->cmpinfo = $output . '\n' . $this->cmpinfo;
         }
@@ -45,6 +45,13 @@ class Python3_Task extends Task {
 
 
      public function getTargetFile() {
-         return $this->sourceFileName;
+         // selectedfile is from webIDE client
+         $selectedfile = $this->selectedfile;
+
+         if (empty($selectedfile)) {
+             throw new Exception('Please select a file to run.');
+         }
+
+         return $selectedfile;
      }
 };

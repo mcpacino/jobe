@@ -104,7 +104,7 @@ abstract class Task {
     // server user is) and has access rights of 771. If it's readable by
     // any of the jobe<n> users, running programs will be able
     // to hoover up other students' submissions.
-    public function prepare_execution_environment($sourceCode) {
+    public function prepare_execution_environment($sourcecodetree) {
         // Create the temporary directory that will be used.
         $this->workdir = tempnam("/home/jobe/runs", "jobe_");
         if (!unlink($this->workdir) || !mkdir($this->workdir)) {
@@ -115,20 +115,30 @@ abstract class Task {
 
         $this->id = basename($this->workdir);
 
-        // Save the source there.
-        if (empty($this->sourceFileName)) {
-            $this->sourceFileName = $this->defaultFileName($sourceCode);
-        }
-        file_put_contents($this->workdir . '/' . $this->sourceFileName, $sourceCode);
-
         // Allocate one of the Jobe users.
         $this->userId = $this->getFreeUser();
         $this->user = sprintf("jobe%02d", $this->userId);
 
         // Give the user RW access.
         exec("setfacl -m u:{$this->user}:rwX {$this->workdir}");
+
+        $this->prepare_source_code_tree($sourcecodetree);
     }
 
+    public function prepare_source_code_tree($sourcecodetree) {
+        foreach($sourcecodetree as $file_path => $file_contetn) {
+            $fullpath = $this->workdir . DIRECTORY_SEPARATOR . $file_path;
+            $parentpath = dirname($fullpath);
+            if (!file_exists($parentpath)) {
+                mkdir($parentpath, 0755, TRUE);
+            }
+            // todo: check $fullpath is out of workdir
+            file_put_contents($fullpath, $file_contetn);
+        }
+
+        // Give the user RW access.
+        exec("setfacl -R --modify=u:{$this->user}:rwX ./");
+    }
 
     // Load the specified files into the working directory.
     // The file list is an array of (fileId, filename) pairs.
@@ -157,7 +167,7 @@ abstract class Task {
     public function execute() {
         try {
             $cmd = implode(' ', $this->getRunCommand());
-            list($this->stdout, $this->stderr) = $this->run_in_sandbox($cmd, false, $this->input);
+            list($retval, $this->stdout, $this->stderr) = $this->run_in_sandbox($cmd, false, $this->input);
             $this->stderr = $this->filteredStderr();
             $this->diagnose_result();  // Analyse output and set result
         }
@@ -308,7 +318,7 @@ abstract class Task {
         }
 
         file_put_contents('prog.cmd', $sandboxCmd);
-        exec('bash prog.cmd');
+        system('bash prog.cmd', $retval);
 
         $output = file_get_contents("$workdir/prog.out");
         if (file_exists("{$this->workdir}/prog.err")) {
@@ -316,7 +326,7 @@ abstract class Task {
         } else {
             $stderr = '';
         }
-        return array($output, $stderr);
+        return array($retval, $output, $stderr);
     }
 
 
@@ -378,9 +388,12 @@ abstract class Task {
     public function getRunCommand() {
         $cmd = array($this->getExecutablePath());
         $cmd = array_merge($cmd, $this->getParam('interpreterargs'));
-        if ($this->getTargetFile()) {
-            $cmd[] = $this->getTargetFile();
+
+        $targetFile = $this->getTargetFile();
+        if ($targetFile) {
+            $cmd[] = $targetFile;
         }
+
         $cmd = array_merge($cmd, $this->getParam('runargs'));
         return $cmd;
     }

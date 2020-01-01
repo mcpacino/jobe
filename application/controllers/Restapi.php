@@ -138,6 +138,98 @@ class Restapi extends REST_Controller {
     }
 
 
+    public function multifilesruns_post()
+    {
+        $this->log('info', "get into multifilesruns_post()");
+
+        // Check this looks like a valid request.
+        if (!$run = $this->post('run_spec', false)) {
+            $this->error('multifilesruns_post: missing or invalid run_spec parameter', 400);
+        }
+        if (!is_array($run) || !isset($run['sourcecodetree']) || !isset($run['language_id'])) {
+            $this->error("multifilesruns_post: invalid run specification: $run", 400);
+        }
+
+        // REST_Controller has called to_array on the JSON decoded
+        // object, so we must first turn it back into an object.
+        $run = (object) $run;
+
+        // Get the the request languages and check it.
+        $language = $run->language_id;
+        if (!array_key_exists($language, $this->languages)) {
+            $this->response("Language '$language' is not known", 400);
+        }
+
+        // Require <language>_Task Class
+        $reqdTaskClass = ucwords($language) . '_Task';
+        require_once($this->get_path_for_language_task($language));
+
+        // Get any input.
+        $input = isset($run->input) ? $run->input : '';
+
+        $selectedfile = isset($run->selectedfile) ? $run->selectedfile : '';
+
+        // Get the parameters, and validate.
+        $params = isset($run->parameters) ? $run->parameters : array();
+        if (isset($params['cputime']) &&
+            intval($params['cputime']) > intval($CI->config->item('cputime_upper_limit_secs'))
+        ) {
+            $this->response("cputime exceeds maximum allowed on this Jobe server", 400);
+        }
+
+        // Debugging is set either via a config parameter or, for a
+        // specific run, by the run's debug attribute.
+        // When debugging, the task run directory and its contents
+        // are not deleted after the run.
+        $debug = $this->config->item('debugging') ||
+            (isset($run->debug) && $run->debug);
+
+        // Create the task.
+        $this->task = new $reqdTaskClass($run->sourcefilename, $input, $params);
+
+        $this->task->selectedfile = $selectedfile;
+
+        // The nested tries here are a bit ugly, but the point is that we want to
+        // to clean up the task with close() before handling the exception.
+        try {
+            try {
+                $this->task->prepare_execution_environment($run->sourcecodetree);
+
+                // For webIDE, we do not load files.
+                //$this->task->load_files($files);
+
+                $this->log('debug', "multifilesruns_post: compiling job {$this->task->id}");
+                $this->task->compile();
+
+                if (empty($this->task->cmpinfo)) {
+                    $this->log('debug', "multifilesruns_post: executing job {$this->task->id}");
+                    $this->task->execute();
+                }
+
+            } finally {
+                // Delete task run directory unless it's a debug run
+                $this->task->close(!$debug);
+            }
+
+            // Success!
+            $this->log('debug', "multifilesruns_post: returning 200 OK for task {$this->task->id}");
+            $this->response($this->task->resultObject(), 200);
+
+            // Report any errors.
+        } catch (JobException $e) {
+            $this->log('debug', 'multifilesruns_post: ' . $e->getLogMessage());
+            $this->response($e->getMessage(), $e->getHttpStatusCode());
+
+        } catch (OverloadException $e) {
+            $this->log('debug', 'multifilesruns_post: overload exception occurred');
+            $resultobject = new ResultObject(0, Task::RESULT_SERVER_OVERLOAD);
+            $this->response($resultobject, 200);
+
+        } catch (Exception $e) {
+            $this->response('Server exception (' . $e->getMessage() . ')', 500);
+        }
+    }
+
     public function runs_post() {
         global $CI;
 
