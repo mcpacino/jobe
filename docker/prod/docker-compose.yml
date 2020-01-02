@@ -1,0 +1,12 @@
+version: '3.7'
+services:
+  jobe:
+    build:
+      # the jobe folder
+      context: ../..
+      dockerfile: docker/prod/Dockerfile
+    image: jobe:lastest
+    container_name: jobe
+    hostname: jobe
+    ports:
+      - "4000:80"
