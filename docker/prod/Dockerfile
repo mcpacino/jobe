@@ -49,11 +49,7 @@ RUN \
     ./install
 
 # Expose apache
-#EXPOSE 80
-# use host network
-RUN \
-	sed -i 's/80/4000/' /etc/apache2/sites-available/000-default.conf && \
-	sed -i 's/80/4000/' /etc/apache2/ports.conf
+EXPOSE 80
 
 RUN echo "root:$ROOTPASS" | chpasswd && \
     chown -R www-data /var/www/html && \
