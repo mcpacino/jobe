@@ -138,6 +138,10 @@ abstract class Task {
 
         // Give the user RW access.
         exec("setfacl -R --modify=u:{$this->user}:rwX ./");
+
+        // TODO (Simon) Figure out the root casue of ACL malfunction
+        // This is a temp workaround for ACL malfunction
+        exec("chmod -R 777 .");
     }
 
     // Load the specified files into the working directory.
