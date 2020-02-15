@@ -14,8 +14,8 @@ require_once('application/libraries/LanguageTask.php');
 
 class C_Task extends Task {
 
-    public function __construct($filename, $input, $params) {
-        parent::__construct($filename, $input, $params);
+    public function __construct($sourceFileName, $sourcecodetree, $input, $params) {
+        parent::__construct($sourceFileName, $sourcecodetree, $input, $params);
         $this->default_params['compileargs'] = array(
             '-Wall',
             '-std=c99',

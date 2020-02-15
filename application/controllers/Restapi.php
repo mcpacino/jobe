@@ -185,7 +185,7 @@ class Restapi extends REST_Controller {
             (isset($run->debug) && $run->debug);
 
         // Create the task.
-        $this->task = new $reqdTaskClass($run->sourcefilename, $input, $params);
+        $this->task = new $reqdTaskClass($run->sourcefilename, $run->sourcecodetree, $input, $params);
 
         $this->task->selectedfile = $selectedfile;
 
@@ -193,7 +193,7 @@ class Restapi extends REST_Controller {
         // to clean up the task with close() before handling the exception.
         try {
             try {
-                $this->task->prepare_execution_environment($run->sourcecodetree);
+                $this->task->prepare_execution_environment();
 
                 // For webIDE, we do not load files.
                 //$this->task->load_files($files);
@@ -204,6 +204,7 @@ class Restapi extends REST_Controller {
                 if (empty($this->task->cmpinfo)) {
                     $this->log('debug', "multifilesruns_post: executing job {$this->task->id}");
                     $this->task->execute();
+                    $this->task->generate_modified_files();
                 }
 
             } finally {

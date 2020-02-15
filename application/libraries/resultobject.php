@@ -18,13 +18,15 @@ class ResultObject {
             $outcome,
             $cmpinfo='',
             $stdout='',
-            $stderr='')
+            $stderr='',
+            $modified_files=array() )
     {
         $this->run_id = $run_id;   // A unique identifying string
         $this->outcome = $outcome; // Outcome of this job
         $this->cmpinfo = $this->clean($cmpinfo);
         $this->stdout = $this->clean($stdout);
         $this->stderr = $this->clean($stderr);
+        $this->modified_files = $modified_files;
     }
 
 
