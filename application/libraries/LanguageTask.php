@@ -40,7 +40,7 @@ abstract class Task {
     public $default_params = array(
         'disklimit'     => 20,      // MB (for normal files)
         'streamsize'    => 2,       // MB (for stdout/stderr)
-        'cputime'       => 5,       // secs
+        'cputime'       => 15,       // secs
         'memorylimit'   => 200,     // MB
         'numprocs'      => 20,
         'compileargs'   => array(),
