@@ -138,61 +138,41 @@ class Restapi extends REST_Controller {
     }
 
 
-    public function runs_post() {
-        global $CI;
-
-        // Note to help understand this method: the ->error and ->response methods
-        // to not return. Then send the response then call exit().
+    public function multifilesruns_post()
+    {
+        $this->log('info', "get into multifilesruns_post()");
 
         // Check this looks like a valid request.
         if (!$run = $this->post('run_spec', false)) {
-            $this->error('runs_post: missing or invalid run_spec parameter', 400);
+            $this->error('multifilesruns_post: missing or invalid run_spec parameter', 400);
         }
-        if (!is_array($run) || !isset($run['sourcecode']) ||
-                !isset($run['language_id'])
-        ) {
-            $this->error('runs_post: invalid run specification', 400);
+        if (!is_array($run) || !isset($run['sourcecodetree']) || !isset($run['language_id'])) {
+            $this->error("multifilesruns_post: invalid run specification: $run", 400);
         }
 
         // REST_Controller has called to_array on the JSON decoded
         // object, so we must first turn it back into an object.
         $run = (object) $run;
 
-        // If there are files, check them.
-        if (isset($run->file_list)) {
-            $files = $run->file_list;
-            foreach ($files as $file) {
-                if (!$this->is_valid_filespec($file)) {
-                    $this->error("runs_post: invalid file specifier: " . print_r($file, true), 400);
-                }
-            }
-        } else {
-            $files = array();
-        }
-
         // Get the the request languages and check it.
         $language = $run->language_id;
         if (!array_key_exists($language, $this->languages)) {
             $this->response("Language '$language' is not known", 400);
         }
+
+        // Require <language>_Task Class
         $reqdTaskClass = ucwords($language) . '_Task';
-        if (!isset($run->sourcefilename) || $run->sourcefilename == 'prog.java') {
-            // If no sourcefilename is given or if it's 'prog.java',
-            // ask the language task to provide a source filename.
-            // The prog.java is a special case (i.e. hack) to support legacy
-            // CodeRunner versions that left it to Jobe to come up with
-            // a name (and in Java it matters).
-            $run->sourcefilename = '';
-        }
         require_once($this->get_path_for_language_task($language));
 
         // Get any input.
         $input = isset($run->input) ? $run->input : '';
 
+        $selectedfile = isset($run->selectedfile) ? $run->selectedfile : '';
+
         // Get the parameters, and validate.
         $params = isset($run->parameters) ? $run->parameters : array();
         if (isset($params['cputime']) &&
-                intval($params['cputime']) > intval($CI->config->item('cputime_upper_limit_secs'))
+            intval($params['cputime']) > intval($CI->config->item('cputime_upper_limit_secs'))
         ) {
             $this->response("cputime exceeds maximum allowed on this Jobe server", 400);
         }
@@ -202,25 +182,29 @@ class Restapi extends REST_Controller {
         // When debugging, the task run directory and its contents
         // are not deleted after the run.
         $debug = $this->config->item('debugging') ||
-                (isset($run->debug) && $run->debug);
+            (isset($run->debug) && $run->debug);
 
         // Create the task.
-        $this->task = new $reqdTaskClass($run->sourcefilename, $input, $params);
+        $this->task = new $reqdTaskClass($run->sourcefilename, $run->sourcecodetree, $input, $params);
+
+        $this->task->selectedfile = $selectedfile;
 
         // The nested tries here are a bit ugly, but the point is that we want to
         // to clean up the task with close() before handling the exception.
         try {
             try {
-                $this->task->prepare_execution_environment($run->sourcecode);
+                $this->task->prepare_execution_environment();
 
-                $this->task->load_files($files);
+                // For webIDE, we do not load files.
+                //$this->task->load_files($files);
 
-                $this->log('debug', "runs_post: compiling job {$this->task->id}");
+                $this->log('debug', "multifilesruns_post: compiling job {$this->task->id}");
                 $this->task->compile();
 
                 if (empty($this->task->cmpinfo)) {
-                    $this->log('debug', "runs_post: executing job {$this->task->id}");
+                    $this->log('debug', "multifilesruns_post: executing job {$this->task->id}");
                     $this->task->execute();
+                    $this->task->generate_modified_files();
                 }
 
             } finally {
@@ -229,16 +213,16 @@ class Restapi extends REST_Controller {
             }
 
             // Success!
-            $this->log('debug', "runs_post: returning 200 OK for task {$this->task->id}");
+            $this->log('debug', "multifilesruns_post: returning 200 OK for task {$this->task->id}");
             $this->response($this->task->resultObject(), 200);
 
-        // Report any errors.
+            // Report any errors.
         } catch (JobException $e) {
-            $this->log('debug', 'runs_post: ' . $e->getLogMessage());
+            $this->log('debug', 'multifilesruns_post: ' . $e->getLogMessage());
             $this->response($e->getMessage(), $e->getHttpStatusCode());
 
         } catch (OverloadException $e) {
-            $this->log('debug', 'runs_post: overload exception occurred');
+            $this->log('debug', 'multifilesruns_post: overload exception occurred');
             $resultobject = new ResultObject(0, Task::RESULT_SERVER_OVERLOAD);
             $this->response($resultobject, 200);
 

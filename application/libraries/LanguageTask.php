@@ -40,7 +40,7 @@ abstract class Task {
     public $default_params = array(
         'disklimit'     => 20,      // MB (for normal files)
         'streamsize'    => 2,       // MB (for stdout/stderr)
-        'cputime'       => 5,       // secs
+        'cputime'       => 15,       // secs
         'memorylimit'   => 200,     // MB
         'numprocs'      => 20,
         'compileargs'   => array(),
@@ -49,6 +49,7 @@ abstract class Task {
         'runargs'       => array()
     );
 
+    public $modified_files = array();
 
     // Global minima settings for runguard sandbox when compiling.
     // These override the default and task specific settings when a task
@@ -63,7 +64,7 @@ abstract class Task {
 
     public $id;             // The task id - use the workdir basename
     public $input;          // Stdin for this task
-    public $sourceFileName; // The name to give the source file
+    public $sourcecodetree; // The dict of { file-path-name : file-content }
     public $params;         // Request parameters
 
     public $userId = null;  // The user id (number counting from 0).
@@ -82,9 +83,10 @@ abstract class Task {
     //   MAIN METHODS THAT HANDLE THE FLOW OF ONE JOB
     // ************************************************
 
-    public function __construct($filename, $input, $params) {
+    public function __construct($sourceFileName, $sourcecodetree, $input, $params) {
         $this->input = $input;
-        $this->sourceFileName = $filename;
+        $this->sourceFileName = $sourceFileName;
+        $this->sourcecodetree = $sourcecodetree;
         $this->params = $params;
         $this->cmpinfo = '';  // Optimism (always look on the bright side of life).
     }
@@ -104,7 +106,7 @@ abstract class Task {
     // server user is) and has access rights of 771. If it's readable by
     // any of the jobe<n> users, running programs will be able
     // to hoover up other students' submissions.
-    public function prepare_execution_environment($sourceCode) {
+    public function prepare_execution_environment() {
         // Create the temporary directory that will be used.
         $this->workdir = tempnam("/home/jobe/runs", "jobe_");
         if (!unlink($this->workdir) || !mkdir($this->workdir)) {
@@ -115,20 +117,45 @@ abstract class Task {
 
         $this->id = basename($this->workdir);
 
-        // Save the source there.
-        if (empty($this->sourceFileName)) {
-            $this->sourceFileName = $this->defaultFileName($sourceCode);
-        }
-        file_put_contents($this->workdir . '/' . $this->sourceFileName, $sourceCode);
-
         // Allocate one of the Jobe users.
         $this->userId = $this->getFreeUser();
         $this->user = sprintf("jobe%02d", $this->userId);
 
         // Give the user RW access.
         exec("setfacl -m u:{$this->user}:rwX {$this->workdir}");
+
+        $this->prepare_source_code_tree();
     }
 
+    public function prepare_source_code_tree() {
+        foreach($this->sourcecodetree as $file_path => $file_contetn) {
+            $fullpath = $this->workdir . DIRECTORY_SEPARATOR . $file_path;
+            $parentpath = dirname($fullpath);
+            if (!file_exists($parentpath)) {
+                mkdir($parentpath, 0755, TRUE);
+            }
+            // todo: check $fullpath is out of workdir
+            file_put_contents($fullpath, $file_contetn);
+        }
+
+        // Give the user RW access.
+        exec("setfacl -R --modify=u:{$this->user}:rwX ./");
+
+        // TODO (Simon) Figure out the root casue of ACL malfunction
+        // This is a temp workaround for ACL malfunction
+        exec("chmod -R 777 .");
+    }
+
+    // Generate a dict that contains modifiles files.
+    public function generate_modified_files() {
+        foreach($this->sourcecodetree as $file_path => $old_file_content) {
+            $fullpath = $this->workdir . DIRECTORY_SEPARATOR . $file_path;
+            $new_file_content = file_get_contents($fullpath);
+            if ($new_file_content != $old_file_content) {
+                $this->modified_files[$file_path] = $new_file_content;
+            }
+        }
+    }
 
     // Load the specified files into the working directory.
     // The file list is an array of (fileId, filename) pairs.
@@ -157,7 +184,7 @@ abstract class Task {
     public function execute() {
         try {
             $cmd = implode(' ', $this->getRunCommand());
-            list($this->stdout, $this->stderr) = $this->run_in_sandbox($cmd, false, $this->input);
+            list($retval, $this->stdout, $this->stderr) = $this->run_in_sandbox($cmd, false, $this->input);
             $this->stderr = $this->filteredStderr();
             $this->diagnose_result();  // Analyse output and set result
         }
@@ -308,7 +335,7 @@ abstract class Task {
         }
 
         file_put_contents('prog.cmd', $sandboxCmd);
-        exec('bash prog.cmd');
+        system('bash prog.cmd', $retval);
 
         $output = file_get_contents("$workdir/prog.out");
         if (file_exists("{$this->workdir}/prog.err")) {
@@ -316,7 +343,7 @@ abstract class Task {
         } else {
             $stderr = '';
         }
-        return array($output, $stderr);
+        return array($retval, $output, $stderr);
     }
 
 
@@ -378,9 +405,12 @@ abstract class Task {
     public function getRunCommand() {
         $cmd = array($this->getExecutablePath());
         $cmd = array_merge($cmd, $this->getParam('interpreterargs'));
-        if ($this->getTargetFile()) {
-            $cmd[] = $this->getTargetFile();
+
+        $targetFile = $this->getTargetFile();
+        if ($targetFile) {
+            $cmd[] = $targetFile;
         }
+
         $cmd = array_merge($cmd, $this->getParam('runargs'));
         return $cmd;
     }
@@ -446,7 +476,6 @@ abstract class Task {
         }
     }
 
-
     // Return the JobeAPI result object to describe the state of this task
     public function resultObject() {
         if ($this->cmpinfo) {
@@ -457,7 +486,8 @@ abstract class Task {
                 $this->result,
                 $this->cmpinfo,
                 $this->filteredStdout(),
-                $this->filteredStderr()
+                $this->filteredStderr(),
+                $this->modified_files
         );
     }
 

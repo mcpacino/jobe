@@ -14,11 +14,11 @@ require_once('application/libraries/LanguageTask.php');
 
 class Cpp_Task extends Task {
 
-    public function __construct($filename, $input, $params) {
-        parent::__construct($filename, $input, $params);
+    public function __construct($sourceFileName, $sourcecodetree, $input, $params) {
+        parent::__construct($sourceFileName, $sourcecodetree, $input, $params);
         $this->default_params['compileargs'] = array(
             '-Wall',
-            '-Werror');
+        );
     }
 
     public static function getVersionCommand() {
@@ -26,12 +26,21 @@ class Cpp_Task extends Task {
     }
 
     public function compile() {
-        $src = basename($this->sourceFileName);
-        $this->executableFileName = $execFileName = "$src.exe";
+        $this->executableFileName = $execFileName = "jobeExecutalbeBinary";
         $compileargs = $this->getParam('compileargs');
         $linkargs = $this->getParam('linkargs');
-        $cmd = "g++ " . implode(' ', $compileargs) . " -o $execFileName $src " . implode(' ', $linkargs);
-        list($output, $this->cmpinfo) = $this->run_in_sandbox($cmd);
+
+        $cmd = "g++ " .
+            implode(' ', $compileargs) .
+            " `find . -name '*.cpp'` " .
+            " -I./ " .
+            " -o $execFileName " .
+            implode(' ', $linkargs);
+
+        list($retval, $output, $stderr) = $this->run_in_sandbox($cmd);
+        if ($retval) {
+            $this->cmpinfo = $stderr;
+        }
     }
 
 

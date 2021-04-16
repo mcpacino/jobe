@@ -13,8 +13,8 @@
 require_once('application/libraries/LanguageTask.php');
 
 class Python3_Task extends Task {
-    public function __construct($filename, $input, $params) {
-        parent::__construct($filename, $input, $params);
+    public function __construct($sourceFileName, $sourcecodetree, $input, $params) {
+        parent::__construct($sourceFileName, $sourcecodetree, $input, $params);
         $this->default_params['memorylimit'] = 400; // Need more for numpy
         $this->default_params['interpreterargs'] = array('-BE');
     }
@@ -26,7 +26,7 @@ class Python3_Task extends Task {
     public function compile() {
         $cmd = "python3 -m py_compile {$this->sourceFileName}";
         $this->executableFileName = $this->sourceFileName;
-        list($output, $this->cmpinfo) = $this->run_in_sandbox($cmd);
+        list($retval, $output, $this->cmpinfo) = $this->run_in_sandbox($cmd);
         if (!empty($this->cmpinfo) && !empty($output)) {
             $this->cmpinfo = $output . '\n' . $this->cmpinfo;
         }
@@ -45,6 +45,13 @@ class Python3_Task extends Task {
 
 
      public function getTargetFile() {
-         return $this->sourceFileName;
+         // selectedfile is from webIDE client
+         $selectedfile = $this->selectedfile;
+
+         if (empty($selectedfile)) {
+             throw new Exception('Please select a file to run.');
+         }
+
+         return $selectedfile;
      }
 };

@@ -31,7 +31,7 @@ class Pascal_Task extends Task {
         $execFileName = "$src.exe";
         $compileargs = $this->getParam('compileargs');
         $cmd = "fpc " . implode(' ', $compileargs) . " -Fe$errorFileName -o$execFileName $src";
-        list($output, $stderr) = $this->run_in_sandbox($cmd);
+        list($retval, $output, $stderr) = $this->run_in_sandbox($cmd);
         if (!file_exists($execFileName)) {
             $this->cmpinfo = file_get_contents($errorFileName);
         } else {
